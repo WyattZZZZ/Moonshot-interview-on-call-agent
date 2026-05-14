@@ -101,6 +101,28 @@
 
 ---
 
+创建一个新的分支，等下我要pr，我刚刚从github上拉下来的项目重新跑了一遍，然后发现一个问题，第一次点击agent的发送按钮没有用，直到我刷新一次，终端显示Loading model from cache /var/folders/fs/
+  d4x5l3n53_l77dnbx8mkrk880000gn/T/jieba.cache
+  127.0.0.1 - - [15/May/2026 01:21:02] "GET /?view=v3 HTTP/1.1" 200 -
+  127.0.0.1 - - [15/May/2026 01:21:02] "GET /styles.css HTTP/1.1" 304 -
+  127.0.0.1 - - [15/May/2026 01:21:02] "GET /app.js HTTP/1.1" 304 -
+  Traceback (most recent call last):
+    File "/Users/wyattzhang/Moonshot-interview-on-call-agent/on-call-agent/.venv/lib/python3.13/site-packages/websockets/asyncio/server.py", line 376, in conn_handler
+      await self.handler(connection)
+    File "/Users/wyattzhang/Moonshot-interview-on-call-agent/on-call-agent/v3/server.py", line 306, in websocket_chat_handler
+      await connection.send(json.dumps({"type": "error", "message": str(exc)}, ensure_ascii=False))
+    File "/Users/wyattzhang/Moonshot-interview-on-call-agent/on-call-agent/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 478, in send
+      async with self.send_context():
+                 ~~~~~~~~~~~~~~~~~^^
+    File "/opt/homebrew/Caskroom/miniconda/base/lib/python3.13/contextlib.py", line 214, in __aenter__
+      return await anext(self.gen)
+             ^^^^^^^^^^^^^^^^^^^^^
+    File "/Users/wyattzhang/Moonshot-interview-on-call-agent/on-call-agent/.venv/lib/python3.13/site-packages/websockets/asyncio/connection.py", line 965, in send_context
+      raise self.protocol.close_exc from original_exc
+  websockets.exceptions.ConnectionClosedOK: received 1001 (going away); then sent 1001 (going away)，解决这个bug，然后如果没有查询到任何文档的话直接把请求发给kimi api，并在提示词中注入没有找到文档的这个提示
+
+---
+
 # Current Architecture Summary
 
 ## Services

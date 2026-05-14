@@ -75,6 +75,30 @@ sys.exit(1)
 PY
 }
 
+wait_tcp() {
+  local name="$1"
+  local host="$2"
+  local port="$3"
+  local timeout="$4"
+  echo "Waiting for ${name} at ${host}:${port}"
+  python3 - "$host" "$port" "$timeout" <<'PY'
+import socket
+import sys
+import time
+
+host, port, timeout = sys.argv[1], int(sys.argv[2]), float(sys.argv[3])
+deadline = time.monotonic() + timeout
+while time.monotonic() < deadline:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(1)
+        if sock.connect_ex((host, port)) == 0:
+            sys.exit(0)
+    time.sleep(0.5)
+print(f"Timed out waiting for {host}:{port}", file=sys.stderr)
+sys.exit(1)
+PY
+}
+
 for port in "$API_GATEWAY_PORT" "$V1_PORT" "$V2_PORT" "$V3_PORT" "$V3_WS_PORT" "$WEBUI_PORT"; do
   check_port "$port"
 done
@@ -115,6 +139,7 @@ pids+=("$!")
 wait_http "v1" "http://${HOST}:${V1_PORT}/health" "$STARTUP_TIMEOUT"
 wait_http "v2" "http://${HOST}:${V2_PORT}/health" "$STARTUP_TIMEOUT"
 wait_http "v3" "http://${HOST}:${V3_PORT}/health" "$STARTUP_TIMEOUT"
+wait_tcp "v3 WebSocket" "$HOST" "$V3_WS_PORT" "$STARTUP_TIMEOUT"
 wait_http "API gateway" "http://${HOST}:${API_GATEWAY_PORT}/health" "$STARTUP_TIMEOUT"
 wait_http "web UI" "http://${HOST}:${WEBUI_PORT}/" "$STARTUP_TIMEOUT"
 

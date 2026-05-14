@@ -17,6 +17,7 @@ from urllib.parse import urlparse
 from typing import Any
 
 import websockets
+from websockets.exceptions import ConnectionClosed
 from websockets.asyncio.server import ServerConnection
 
 
@@ -244,30 +245,46 @@ def _weights_payload(payload: dict) -> dict:
 
 
 async def websocket_chat_handler(connection: ServerConnection, server: OnCallV3Server) -> None:
+    async def send_event(event: dict[str, Any]) -> bool:
+        try:
+            await connection.send(json.dumps(event, ensure_ascii=False))
+            return True
+        except ConnectionClosed:
+            return False
+
+    async def close_connection(code: int | None = None, reason: str = "") -> None:
+        try:
+            if code is None:
+                await connection.close()
+            else:
+                await connection.close(code, reason)
+        except ConnectionClosed:
+            pass
+
     try:
         raw = await connection.recv()
         if isinstance(raw, bytes):
             raw = raw.decode("utf-8", errors="replace")
         if not isinstance(raw, str):
-            await connection.send(json.dumps({"type": "error", "message": "invalid handshake payload"}, ensure_ascii=False))
-            await connection.close(WEBSOCKET_CLOSE_SESSION_ERROR, "invalid handshake payload")
+            await send_event({"type": "error", "message": "invalid handshake payload"})
+            await close_connection(WEBSOCKET_CLOSE_SESSION_ERROR, "invalid handshake payload")
             return
         try:
             handshake = json.loads(raw)
         except json.JSONDecodeError:
-            await connection.send(json.dumps({"type": "error", "message": "invalid handshake JSON"}, ensure_ascii=False))
-            await connection.close(WEBSOCKET_CLOSE_SESSION_ERROR, "invalid handshake JSON")
+            await send_event({"type": "error", "message": "invalid handshake JSON"})
+            await close_connection(WEBSOCKET_CLOSE_SESSION_ERROR, "invalid handshake JSON")
             return
         session_id = str(handshake.get("session_id", "")).strip()
         if not session_id:
-            await connection.send(json.dumps({"type": "error", "message": "session_id is required"}, ensure_ascii=False))
-            await connection.close(WEBSOCKET_CLOSE_SESSION_ERROR, "session_id is required")
+            await send_event({"type": "error", "message": "session_id is required"})
+            await close_connection(WEBSOCKET_CLOSE_SESSION_ERROR, "session_id is required")
             return
 
         session = server.session_store.pop(session_id)
         if session is None:
-            await connection.send(json.dumps({"type": "error", "message": "unknown or expired session"}, ensure_ascii=False))
-            await connection.close(WEBSOCKET_CLOSE_SESSION_ERROR, "unknown or expired session")
+            await send_event({"type": "error", "message": "unknown or expired session"})
+            await close_connection(WEBSOCKET_CLOSE_SESSION_ERROR, "unknown or expired session")
             return
 
         event_queue: "queue.Queue[object]" = queue.Queue()
@@ -298,14 +315,15 @@ async def websocket_chat_handler(connection: ServerConnection, server: OnCallV3S
             event = await asyncio.to_thread(event_queue.get)
             if event is sentinel:
                 break
-            await connection.send(json.dumps(event, ensure_ascii=False))
+            if not await send_event(event):
+                break
 
-        await connection.close()
+        await close_connection()
+    except ConnectionClosed:
+        return
     except Exception as exc:
-        try:
-            await connection.send(json.dumps({"type": "error", "message": str(exc)}, ensure_ascii=False))
-        finally:
-            await connection.close()
+        await send_event({"type": "error", "message": str(exc)})
+        await close_connection()
 
 
 def start_websocket_server(server: OnCallV3Server) -> threading.Thread:
