@@ -27,19 +27,6 @@
               <h2 id="modeHeading">v1 Keyword Search</h2>
               <p id="modeCopy">Upload SOP HTML, then query the keyword search endpoint.</p>
             </div>
-            <button id="settingsToggle" class="secondary-button" type="button" aria-expanded="false" aria-controls="settingsPanel">
-              API
-            </button>
-          </div>
-
-          <div id="settingsPanel" class="settings-panel" hidden>
-            <label for="apiBaseInput">API base URL</label>
-            <div class="settings-row">
-              <input id="apiBaseInput" type="url" placeholder="http://localhost:8000">
-              <button id="saveApiBase" class="secondary-button" type="button">Save</button>
-              <button id="resetApiBase" class="ghost-button" type="button">Reset</button>
-            </div>
-            <p>Stored in <code>localStorage.API_BASE</code>. The UI appends versioned paths such as <code>/v1/search</code>.</p>
           </div>
         </section>
 
@@ -106,6 +93,13 @@
             </div>
             <div id="chatMessages" class="chat-messages" aria-live="polite">
               <div class="chat-empty">Ask an on-call question to inspect the answer and tool calls.</div>
+            </div>
+            <div class="weight-control" aria-labelledby="weightLabel">
+              <div class="weight-header">
+                <label id="weightLabel" for="lexicalWeightInput">Scoring weight</label>
+                <span id="weightValue">Lexical 50% / Semantic 50%</span>
+              </div>
+              <input id="lexicalWeightInput" type="range" min="0" max="100" step="5" value="50">
             </div>
             <form id="chatForm" class="chat-form">
               <label class="visually-hidden" for="chatInput">Message</label>

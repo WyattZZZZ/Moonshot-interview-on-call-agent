@@ -380,9 +380,65 @@ button:disabled {
   font-size: 0.82rem;
 }
 
+.matched-chunk {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafb;
+}
+
+.matched-chunk summary {
+  cursor: pointer;
+  padding: 10px 12px;
+  color: var(--accent);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.matched-chunk pre {
+  max-height: 220px;
+  overflow: auto;
+  margin: 0;
+  padding: 0 12px 12px;
+  color: #34424f;
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
 .chat-panel {
   display: grid;
   gap: 18px;
+}
+
+.weight-control {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.weight-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.weight-header label,
+.weight-header span {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+input[type="range"] {
+  min-height: 24px;
+  padding: 0;
+  accent-color: var(--accent);
 }
 
 .chat-messages {
@@ -405,6 +461,7 @@ button:disabled {
 
 .chat-message {
   max-width: min(760px, 100%);
+  min-width: 0;
   padding: 14px;
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -432,9 +489,131 @@ button:disabled {
   text-transform: uppercase;
 }
 
+.chat-status {
+  min-height: 18px;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+.chat-status:empty {
+  display: none;
+}
+
+.chat-status.error {
+  color: var(--danger);
+}
+
 .chat-body {
-  white-space: pre-wrap;
   line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.markdown > *:first-child {
+  margin-top: 0;
+}
+
+.markdown > *:last-child {
+  margin-bottom: 0;
+}
+
+.md-heading {
+  margin: 12px 0 6px;
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.md-paragraph {
+  margin: 0 0 10px;
+}
+
+.md-list {
+  margin: 0 0 10px;
+  padding-left: 22px;
+}
+
+.md-list li {
+  margin: 4px 0;
+}
+
+.md-quote {
+  margin: 10px 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--border);
+  color: var(--muted);
+  background: #f8fafb;
+}
+
+.md-quote p {
+  margin-bottom: 6px;
+}
+
+.md-code {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 10px 0;
+  padding: 12px;
+  border-radius: 8px;
+  background: #101820;
+  color: #edf2f5;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+.md-code code,
+.trace-item pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+}
+
+.chat-body p code,
+.chat-body li code {
+  border-radius: 4px;
+  background: #eef3f6;
+  padding: 1px 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 0.88em;
+}
+
+.chat-trace {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.trace-item {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fafb;
+  padding: 10px;
+}
+
+.trace-item.ok {
+  border-color: rgba(18, 108, 90, 0.28);
+}
+
+.trace-item.error {
+  border-color: rgba(180, 35, 24, 0.35);
+}
+
+.trace-heading {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.trace-item pre {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 8px 0 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--text);
+  font-size: 0.78rem;
+  line-height: 1.45;
 }
 
 .steps-list {
@@ -442,6 +621,27 @@ button:disabled {
   gap: 10px;
   margin: 12px 0 0;
   padding-left: 20px;
+}
+
+.candidate-list {
+  margin-top: 14px;
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+.candidate-list summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.candidate-list ol {
+  margin: 10px 0 0;
+  padding-left: 22px;
+}
+
+.candidate-list li {
+  color: var(--muted);
+  margin: 8px 0;
 }
 
 .steps-list pre {
@@ -475,7 +675,8 @@ button:disabled {
   .panel-heading,
   .section-heading,
   .results-header,
-  .result-title-row {
+  .result-title-row,
+  .weight-header {
     display: grid;
   }
 

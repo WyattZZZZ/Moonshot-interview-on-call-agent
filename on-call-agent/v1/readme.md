@@ -1,78 +1,97 @@
-# on-call-agent v1
+# On-Call Agent v1
 
-v1 is a lightweight HTTP API built with Python standard library modules and SQLite FTS5. It stores shared data in `on-call-agent/database` and does not modify the original `coding-exam/question-1/data` files.
+v1 是关键词检索基线版本。它使用 Python 标准库 HTTP 服务、SQLite、SQLite FTS5 和 jieba 分词。
 
-## Run
+## 系统职责
 
-Install and sync dependencies once from `on-call-agent/`:
+v1 负责：
 
-```bash
-cd on-call-agent
-uv sync
-```
+- 文档创建、读取、删除 API
+- 将清洗后的 HTML 文本存入 SQLite
+- 维护 FTS5 关键词索引
+- 为 v3 融合检索提供关键词分数
 
-```bash
-uv run python v1/server.py --host 127.0.0.1 --port 8000 --import-demo
-```
+SQLite schema 会被后续版本复用。`documents` 表中保留了可为空的语义字段，方便 v2 写入向量相关元数据，而不需要重置迁移。
 
-`--import-demo` is idempotent: existing demo documents are skipped so server restarts do not overwrite uploaded content or future v2 fields. Use `--refresh-demo` together with `--import-demo` only when you intentionally want to overwrite the demo SOP rows.
+## 存储
 
-The default database path is:
+默认数据库：
 
 ```text
 database/on_call_agent.sqlite3
 ```
 
-Override it with either `--db /path/to/file.sqlite3` or `ON_CALL_AGENT_DB=/path/to/file.sqlite3`.
+主要数据表：
+
+- `documents`：文档 id、标题、清洗后的正文、原始 HTML，以及可选的语义字段。
+- `documents_fts`：基于标题和清洗正文的 FTS5 索引。
+- `embeddings`：为向量记录保留的兼容表；当前 v2 的实际语义检索使用 Chroma。
+
+服务重启不会清空数据库。除非传入 `--refresh-demo`，示例数据导入是幂等的。
+
+## 启动
+
+```bash
+cd on-call-agent
+uv sync
+uv run python v1/server.py --host 127.0.0.1 --port 8000 --import-demo --demo-dir ../coding-exam/question-1/data
+```
+
+覆盖数据库路径：
+
+```bash
+ON_CALL_AGENT_DB=/tmp/on_call_agent.sqlite3 uv run python v1/server.py
+```
 
 ## API
 
-Health check:
+健康检查：
 
 ```bash
 curl http://127.0.0.1:8000/health
 ```
 
-Create or replace a document:
+创建文档：
 
 ```bash
-curl -X POST http://127.0.0.1:8000/v1/documents \
+curl -sS -X POST http://127.0.0.1:8000/v1/documents \
   -H 'Content-Type: application/json' \
   -d '{"id":"sop-001","html":"<html><head><title>Example</title></head><body>OOM recovery</body></html>"}'
 ```
 
-Upload guardrails:
+重复 id 默认返回 `409`。如果请求体包含 `"replace": true`，则覆盖已有文档。
 
-- Duplicate IDs return `409` unless the JSON body includes `"replace": true`.
-- IDs must be 1-120 characters and use letters, numbers, `.`, `_`, or `-`.
-- JSON request bodies are capped at 2 MiB.
-- HTML content is capped at 1,000,000 characters.
-
-Get a document:
+读取文档：
 
 ```bash
 curl http://127.0.0.1:8000/v1/documents/sop-001
 ```
 
-Delete a document:
+删除文档：
 
 ```bash
 curl -X DELETE http://127.0.0.1:8000/v1/documents/sop-001
 ```
 
-Search:
+搜索：
 
 ```bash
 curl 'http://127.0.0.1:8000/v1/search?q=OOM'
 curl 'http://127.0.0.1:8000/v1/search?q=故障'
-curl 'http://127.0.0.1:8000/v1/search?q=CDN'
-curl 'http://127.0.0.1:8000/v1/search?q=%26'
 ```
 
-## Notes
+## 保护规则
 
-- `documents` includes v2-compatible nullable `semantic_profile` and `embedding` fields.
-- `embeddings` exists for future vector records and allows nullable vector values.
-- `script` and `style` content is removed before indexing, so words that only appear in scripts are not searchable.
-- Search uses jieba to tokenize Chinese text before writing to SQLite FTS5, then ranks matches with `bm25`.
-- Queries that cannot be represented as an FTS query, such as `&`, fall back to a literal `LIKE` search against title and cleaned text with a low fallback score.
+- 请求 JSON body 最大为 2 MiB
+- HTML 内容最大为 1,000,000 字符
+- 文档 id 只允许字母、数字、`.`、`_`、`-`
+- 建索引前会移除 `script` 和 `style` 内容
+- 非法 FTS 查询会回退到字面量 `LIKE` 搜索，并给出较低的兜底分数
+
+## 验证
+
+```bash
+uv run python -m py_compile database/db.py v1/server.py v1/search.py
+uv run python v1/server.py --host 127.0.0.1 --port 8000 --import-demo
+curl 'http://127.0.0.1:8000/v1/search?q=OOM'
+```

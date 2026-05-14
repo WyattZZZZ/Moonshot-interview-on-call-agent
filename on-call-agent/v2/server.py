@@ -13,19 +13,23 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 ON_CALL_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = ON_CALL_ROOT.parent
-V1_ROOT = ON_CALL_ROOT / "v1"
 V2_ROOT = ON_CALL_ROOT / "v2"
-for path in (ON_CALL_ROOT, V1_ROOT, V2_ROOT):
-    if str(path) not in sys.path:
-        sys.path.insert(0, str(path))
+V1_ROOT = ON_CALL_ROOT / "v1"
+for path in (V1_ROOT, ON_CALL_ROOT, V2_ROOT):
+    path_text = str(path)
+    while path_text in sys.path:
+        sys.path.remove(path_text)
+    sys.path.insert(0, path_text)
 
-from database import db
+from database import chroma_store, db
 from html_cleaner import clean_html
-from search import search_documents_hybrid
-from semantic import MODEL_NAME, build_semantic_artifacts
+from chunker import ChunkRecord, build_chunks
+from search import search_documents_semantic
+from semantic import DEFAULT_EMBEDDING_MODEL, chunk_embedding_text, embed_texts
 
 
 JSON_HEADERS = {"Content-Type": "application/json; charset=utf-8"}
+HTML_HEADERS = {"Content-Type": "text/html; charset=utf-8"}
 MAX_JSON_BYTES = 2 * 1024 * 1024
 MAX_HTML_CHARS = 1_000_000
 MAX_DOC_ID_CHARS = 120
@@ -39,7 +43,7 @@ class APIError(Exception):
 
 
 class OnCallV2Handler(BaseHTTPRequestHandler):
-    server_version = "on-call-agent-v2/1.0"
+    server_version = "on-call-agent-v2/2.0"
 
     def end_headers(self) -> None:
         self.send_header("Access-Control-Allow-Origin", "*")
@@ -57,22 +61,33 @@ class OnCallV2Handler(BaseHTTPRequestHandler):
             path = parsed.path.rstrip("/") or "/"
             if path in {"/", "/health"}:
                 self.send_json({"status": "ok", "version": "v2"})
+            elif path == "/v2":
+                self.send_html(v2_search_page())
             elif path == "/v2/search":
                 query = parse_qs(parsed.query).get("q", [""])[0]
                 with db.connection(self.server.db_path) as conn:
                     db.initialize(conn)
-                    results = search_documents_hybrid(conn, query)
+                    results = search_documents_semantic(query)
                 self.send_json({"query": query, "results": results})
             elif path.startswith("/v2/documents/"):
                 doc_id = unquote(path.removeprefix("/v2/documents/"))
                 with db.connection(self.server.db_path) as conn:
                     db.initialize(conn)
                     document = db.get_document(conn, doc_id)
-                    embedding = db.get_embedding(conn, doc_id)
                 if not document:
                     raise APIError(HTTPStatus.NOT_FOUND, "document not found")
-                if embedding:
-                    document["embedding_record"] = embedding
+                chunks = chroma_store.get_document_chunks(doc_id)
+                document["chunk_count"] = len(chunks)
+                document["chunks"] = [
+                    {
+                        "chunk_id": chunk["chunk_id"],
+                        "chunk_index": chunk["chunk_index"],
+                        "heading": chunk.get("heading", ""),
+                        "heading_path": chunk.get("heading_path", ""),
+                        "text_preview": _preview(chunk.get("chunk_text", "")),
+                    }
+                    for chunk in chunks
+                ]
                 self.send_json(document)
             else:
                 raise APIError(HTTPStatus.NOT_FOUND, "not found")
@@ -87,12 +102,13 @@ class OnCallV2Handler(BaseHTTPRequestHandler):
             if parsed.path.rstrip("/") != "/v2/documents":
                 raise APIError(HTTPStatus.NOT_FOUND, "not found")
             payload = self.read_json()
-            document = upsert_document_from_payload(self.server.db_path, payload)
+            document, chunks = upsert_document_from_payload(self.server.db_path, payload)
             self.send_json(
                 {
                     "id": document["id"],
                     "title": document["title"],
-                    "semantic_profile": json.loads(document["semantic_profile"]),
+                    "chunk_count": len(chunks),
+                    "embedding_model": DEFAULT_EMBEDDING_MODEL,
                 },
                 HTTPStatus.CREATED,
             )
@@ -113,6 +129,7 @@ class OnCallV2Handler(BaseHTTPRequestHandler):
             with db.connection(self.server.db_path) as conn:
                 db.initialize(conn)
                 deleted = db.delete_document(conn, doc_id)
+            chroma_store.delete_document(doc_id)
             if not deleted:
                 raise APIError(HTTPStatus.NOT_FOUND, "document not found")
             self.send_json({"success": True})
@@ -143,6 +160,15 @@ class OnCallV2Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def send_html(self, html: str, status: HTTPStatus = HTTPStatus.OK) -> None:
+        body = html.encode("utf-8")
+        self.send_response(status)
+        for key, value in HTML_HEADERS.items():
+            self.send_header(key, value)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def send_error_json(self, status: HTTPStatus, message: str) -> None:
         self.send_json({"error": message}, status)
 
@@ -156,7 +182,7 @@ class OnCallV2Server(ThreadingHTTPServer):
         self.db_path = db_path
 
 
-def upsert_document_from_payload(db_path: Path, payload: dict) -> dict:
+def upsert_document_from_payload(db_path: Path, payload: dict) -> tuple[dict, list[ChunkRecord]]:
     doc_id = str(payload.get("id", "")).strip()
     html = payload.get("html")
     replace = bool(payload.get("replace", False))
@@ -172,60 +198,233 @@ def upsert_document_from_payload(db_path: Path, payload: dict) -> dict:
     if len(html) > MAX_HTML_CHARS:
         raise APIError(HTTPStatus.REQUEST_ENTITY_TOO_LARGE, f"html must be at most {MAX_HTML_CHARS} characters")
 
-    title, clean_text = clean_html(html)
-    if isinstance(payload.get("title"), str) and payload["title"].strip():
-        title = payload["title"].strip()
-    path = str(payload.get("path", "")).strip()
-    semantic_profile, embedding = build_semantic_artifacts(title, clean_text)
-
     with db.connection(db_path) as conn:
         db.initialize(conn)
         if not replace and db.document_exists(conn, doc_id):
             raise APIError(HTTPStatus.CONFLICT, "document id already exists; pass replace=true to overwrite")
+
+    title, clean_text = clean_html(html)
+    if isinstance(payload.get("title"), str) and payload["title"].strip():
+        title = payload["title"].strip()
+    path = str(payload.get("path", "")).strip()
+
+    chunks = build_chunks(html, title=title, doc_id=doc_id)
+    if not chunks and clean_text.strip():
+        chunks = [
+            ChunkRecord(
+                chunk_id=f"{doc_id}::0000",
+                chunk_index=0,
+                heading=title,
+                heading_path=title,
+                chunk_text=clean_text.strip(),
+            )
+        ]
+
+    if not chunks:
+        raise APIError(HTTPStatus.BAD_REQUEST, "html did not contain any chunkable content")
+
+    chunk_embeddings = embed_texts(
+        [chunk_embedding_text(chunk.heading_path, chunk.chunk_text) for chunk in chunks],
+        model=DEFAULT_EMBEDDING_MODEL,
+    )
+
+    document = _store_document_and_chunks(
+        db_path=db_path,
+        doc_id=doc_id,
+        title=title,
+        html=html,
+        clean_text=clean_text,
+        path=path,
+        chunks=chunks,
+        chunk_embeddings=chunk_embeddings,
+        embedding_model=DEFAULT_EMBEDDING_MODEL,
+    )
+    return document, chunks
+
+
+def _store_document_and_chunks(
+    *,
+    db_path: Path,
+    doc_id: str,
+    title: str,
+    html: str,
+    clean_text: str,
+    path: str,
+    chunks: list[ChunkRecord],
+    chunk_embeddings: list[list[float]],
+    embedding_model: str,
+) -> dict:
+    with db.connection(db_path) as conn:
+        db.initialize(conn)
         document = db.upsert_document(
             conn,
             doc_id=doc_id,
             title=title,
             html=html,
             clean_text=clean_text,
-            semantic_profile=semantic_profile,
-            embedding=embedding,
+            semantic_profile=None,
+            embedding=None,
             path=path,
         )
-        db.upsert_embedding(conn, document_id=doc_id, model=MODEL_NAME, vector=embedding)
+        db.clear_embedding(conn, doc_id)
+
+    chroma_store.delete_document(doc_id)
+    chroma_store.upsert_chunks(
+        document_id=doc_id,
+        title=title,
+        path=path,
+        embedding_model=embedding_model,
+        chunks=[
+            {
+                "chunk_id": chunk.chunk_id,
+                "chunk_index": chunk.chunk_index,
+                "heading": chunk.heading,
+                "heading_path": chunk.heading_path,
+                "chunk_text": chunk.chunk_text,
+            }
+            for chunk in chunks
+        ],
+        embeddings=chunk_embeddings,
+    )
     return document
 
 
 def import_demo_data(db_path: Path, data_dir: Path, *, refresh: bool = False) -> tuple[int, int]:
     imported = 0
     skipped = 0
-    with db.connection(db_path) as conn:
-        db.initialize(conn)
-        for html_path in sorted(data_dir.glob("*.html")):
-            doc_id = html_path.stem
-            if not refresh and db.get_document(conn, doc_id):
-                skipped += 1
-                continue
-            html = html_path.read_text(encoding="utf-8")
-            title, clean_text = clean_html(html)
-            semantic_profile, embedding = build_semantic_artifacts(title, clean_text)
-            db.upsert_document(
-                conn,
-                doc_id=doc_id,
-                title=title,
-                html=html,
-                clean_text=clean_text,
-                semantic_profile=semantic_profile,
-                embedding=embedding,
-                path=str(html_path.relative_to(REPO_ROOT) if html_path.is_relative_to(REPO_ROOT) else html_path),
-            )
-            db.upsert_embedding(conn, document_id=doc_id, model=MODEL_NAME, vector=embedding)
-            imported += 1
+    for html_path in sorted(data_dir.glob("*.html")):
+        doc_id = html_path.stem
+        with db.connection(db_path) as conn:
+            db.initialize(conn)
+            existing = db.get_document(conn, doc_id)
+        if not refresh and existing and chroma_store.get_document_chunks(doc_id):
+            skipped += 1
+            continue
+        html = html_path.read_text(encoding="utf-8")
+        title, clean_text = clean_html(html)
+        chunks = build_chunks(html, title=title, doc_id=doc_id)
+        if not chunks and clean_text.strip():
+            chunks = [
+                ChunkRecord(
+                    chunk_id=f"{doc_id}::0000",
+                    chunk_index=0,
+                    heading=title,
+                    heading_path=title,
+                    chunk_text=clean_text.strip(),
+                )
+            ]
+        if not chunks:
+            skipped += 1
+            continue
+        chunk_embeddings = embed_texts(
+            [chunk_embedding_text(chunk.heading_path, chunk.chunk_text) for chunk in chunks],
+            model=DEFAULT_EMBEDDING_MODEL,
+        )
+        _store_document_and_chunks(
+            db_path=db_path,
+            doc_id=doc_id,
+            title=title,
+            html=html,
+            clean_text=clean_text,
+            path=str(html_path.relative_to(REPO_ROOT) if html_path.is_relative_to(REPO_ROOT) else html_path),
+            chunks=chunks,
+            chunk_embeddings=chunk_embeddings,
+            embedding_model=DEFAULT_EMBEDDING_MODEL,
+        )
+        imported += 1
     return imported, skipped
 
 
+def v2_search_page() -> str:
+    return """<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>On-Call Agent v2</title>
+  <style>
+    body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #17202a; background: #f7f8fa; }
+    main { max-width: 920px; margin: 0 auto; padding: 40px 20px; }
+    h1 { font-size: 28px; margin: 0 0 20px; }
+    form { display: flex; gap: 10px; margin-bottom: 18px; }
+    input { flex: 1; min-width: 0; padding: 12px 14px; border: 1px solid #c9d1d9; border-radius: 6px; font-size: 16px; }
+    button { padding: 12px 18px; border: 0; border-radius: 6px; background: #1f6feb; color: white; font-size: 16px; cursor: pointer; }
+    .hint { color: #59636e; margin-bottom: 24px; }
+    .result { background: white; border: 1px solid #d8dee4; border-radius: 8px; padding: 16px; margin: 12px 0; }
+    .title { font-weight: 700; margin-bottom: 8px; }
+    .meta { color: #59636e; font-size: 13px; margin-top: 10px; }
+    .empty, .error { color: #59636e; padding: 18px 0; }
+    .error { color: #b42318; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>On-Call Agent v2</h1>
+    <form id="search-form">
+      <input id="query" name="q" value="服务器挂了" autocomplete="off" autofocus>
+      <button type="submit">搜索</button>
+    </form>
+    <div class="hint">语义检索接口：<code>GET /v2/search?q=...</code></div>
+    <section id="results"></section>
+  </main>
+  <script>
+    const form = document.getElementById("search-form");
+    const query = document.getElementById("query");
+    const results = document.getElementById("results");
+
+    function escapeHtml(value) {
+      return String(value).replace(/[&<>"']/g, ch => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+      }[ch]));
+    }
+
+    async function runSearch(q) {
+      results.innerHTML = '<div class="empty">搜索中...</div>';
+      const response = await fetch(`/v2/search?q=${encodeURIComponent(q)}`);
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      if (!data.results.length) {
+        results.innerHTML = '<div class="empty">没有结果</div>';
+        return;
+      }
+      results.innerHTML = data.results.map(item => `
+        <article class="result">
+          <div class="title">${escapeHtml(item.title || item.id)}</div>
+          <div>${escapeHtml(item.snippet || "")}</div>
+          <div class="meta">${escapeHtml(item.id)} · score ${escapeHtml(item.score)} · ${escapeHtml(item.matched_chunk_heading_path || "")}</div>
+        </article>
+      `).join("");
+    }
+
+    form.addEventListener("submit", event => {
+      event.preventDefault();
+      const q = query.value.trim();
+      if (!q) return;
+      history.replaceState(null, "", `/v2?q=${encodeURIComponent(q)}`);
+      runSearch(q).catch(error => {
+        results.innerHTML = `<div class="error">${escapeHtml(error.message)}</div>`;
+      });
+    });
+
+    const initial = new URLSearchParams(location.search).get("q");
+    if (initial) query.value = initial;
+    runSearch(query.value.trim()).catch(() => {
+      results.innerHTML = '<div class="empty">服务已启动。导入 demo 后可直接搜索。</div>';
+    });
+  </script>
+</body>
+</html>"""
+
+
+def _preview(text: str, size: int = 220) -> str:
+    cleaned = " ".join(text.split())
+    if len(cleaned) <= size:
+        return cleaned
+    return cleaned[: size - 1].rstrip() + "…"
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="on-call-agent v2 semantic/hybrid HTTP API")
+    parser = argparse.ArgumentParser(description="on-call-agent v2 semantic/chroma HTTP API")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--db", type=Path, default=db.default_db_path())

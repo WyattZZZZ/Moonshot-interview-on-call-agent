@@ -3,3 +3,6 @@ __pycache__/
 *.py[cod]
 database/*.sqlite3
 database/*.sqlite3-*
+database/chroma/
+database/chroma-*/
+.env

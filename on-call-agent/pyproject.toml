@@ -4,7 +4,11 @@ version = "0.1.0"
 description = "Versioned on-call SOP search and agent demo"
 requires-python = ">=3.11"
 dependencies = [
+    "beautifulsoup4>=4.12.3",
+    "chromadb>=0.5.23",
     "jieba>=0.42.1",
+    "sentence-transformers>=3.0.1",
+    "websockets>=16.0",
 ]
 
 [tool.uv]

@@ -83,6 +83,8 @@ def ensure_document_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE documents ADD COLUMN semantic_profile TEXT NULL")
     if "embedding" not in columns:
         conn.execute("ALTER TABLE documents ADD COLUMN embedding TEXT NULL")
+    if "path" not in columns:
+        conn.execute("ALTER TABLE documents ADD COLUMN path TEXT NOT NULL DEFAULT ''")
 
 
 def ensure_fts_schema(conn: sqlite3.Connection) -> None:
@@ -217,6 +219,10 @@ def get_embedding(conn: sqlite3.Connection, document_id: str) -> dict[str, Any] 
 def document_exists(conn: sqlite3.Connection, doc_id: str) -> bool:
     row = conn.execute("SELECT 1 FROM documents WHERE id = ? LIMIT 1", (doc_id,)).fetchone()
     return row is not None
+
+
+def clear_embedding(conn: sqlite3.Connection, document_id: str) -> None:
+    conn.execute("DELETE FROM embeddings WHERE document_id = ?", (document_id,))
 
 
 def get_document(conn: sqlite3.Connection, doc_id: str) -> dict[str, Any] | None:
