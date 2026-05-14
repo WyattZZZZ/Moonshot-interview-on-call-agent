@@ -11,7 +11,7 @@ if str(V3_ROOT) not in sys.path:
     sys.path.insert(0, str(V3_ROOT))
 
 from agent import run_chat
-from retrieval import CandidateWeights, build_candidates
+from retrieval import CandidateWeights, build_candidates, get_last_retrieval_errors
 from runtime import MoonshotConfig, RuntimeErrorResponse, TokenLimitError
 from server import ChatSessionStore
 from tools import ToolError, read_file
@@ -229,6 +229,19 @@ class V3Tests(unittest.TestCase):
         self.assertEqual(result["candidates"], [])
         self.assertIn("未找到", result["answer"])
         self.assertTrue(any("No document reached" in item.get("content", "") for item in runtime.messages))
+
+    def test_retrieval_continues_when_one_source_fails(self) -> None:
+        candidates = build_candidates(
+            query="oom",
+            weights=CandidateWeights(keyword=1.0, semantic=0.0),
+            db_path=Path("unused.sqlite3"),
+            keyword_search=lambda query, limit: [
+                {"id": "sop-001", "title": "OOM", "snippet": "扩容", "score": 1.0}
+            ],
+            semantic_search=lambda query, limit: (_ for _ in ()).throw(RuntimeError("chroma missing")),
+        )
+        self.assertEqual([item["id"] for item in candidates], ["sop-001"])
+        self.assertEqual(get_last_retrieval_errors(), [{"source": "v2", "message": "chroma missing"}])
 
 
 if __name__ == "__main__":

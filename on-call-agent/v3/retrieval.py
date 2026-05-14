@@ -21,7 +21,8 @@ from database import db
 
 
 SearchFn = Callable[[str, int], list[dict[str, Any]]]
-CANDIDATE_THRESHOLD = 0.75
+CANDIDATE_THRESHOLD = 0.7
+LAST_RETRIEVAL_ERRORS: list[dict[str, str]] = []
 
 
 @dataclass(frozen=True)
@@ -61,8 +62,11 @@ def build_candidates(
     with ThreadPoolExecutor(max_workers=2) as executor:
         keyword_future = executor.submit(keyword_fn, query, limit)
         semantic_future = executor.submit(semantic_fn, query, limit)
-        keyword_results = _normalize_scores(keyword_future.result())
-        semantic_results = _normalize_scores(semantic_future.result())
+        keyword_raw, keyword_error = _result_or_empty(keyword_future, "v1")
+        semantic_raw, semantic_error = _result_or_empty(semantic_future, "v2")
+        _set_last_retrieval_errors([error for error in (keyword_error, semantic_error) if error])
+        keyword_results = keyword_raw
+        semantic_results = semantic_raw
 
     merged: dict[str, dict[str, Any]] = {}
     for item in keyword_results:
@@ -110,6 +114,25 @@ def _semantic_search(query: str, limit: int) -> list[dict[str, Any]]:
         sys.path.insert(0, str(V2_ROOT))
     module = _load_module("v3_v2_search", V2_ROOT / "search.py", expected_attrs=("search_documents_semantic",))
     return module.search_documents_semantic(query, limit=limit)
+
+
+def get_last_retrieval_errors() -> list[dict[str, str]]:
+    return [dict(error) for error in LAST_RETRIEVAL_ERRORS]
+
+
+def _set_last_retrieval_errors(errors: list[dict[str, str]]) -> None:
+    LAST_RETRIEVAL_ERRORS.clear()
+    LAST_RETRIEVAL_ERRORS.extend(errors)
+
+
+def _result_or_empty(future, source: str) -> tuple[list[dict[str, Any]], dict[str, str] | None]:
+    try:
+        result = future.result()
+    except Exception as exc:
+        return [], {"source": source, "message": str(exc)}
+    if not isinstance(result, list):
+        return [], {"source": source, "message": f"{source} search returned a non-list result"}
+    return result, None
 
 
 def _load_module(name: str, path: Path, *, expected_attrs: tuple[str, ...] = ()):

@@ -75,26 +75,33 @@ sys.exit(1)
 PY
 }
 
-wait_tcp() {
+wait_ws() {
   local name="$1"
-  local host="$2"
-  local port="$3"
-  local timeout="$4"
-  echo "Waiting for ${name} at ${host}:${port}"
-  python3 - "$host" "$port" "$timeout" <<'PY'
-import socket
+  local url="$2"
+  local timeout="$3"
+  echo "Waiting for ${name} at ${url}"
+  uv run python - "$url" "$timeout" <<'PY'
+import asyncio
+import json
 import sys
 import time
+import websockets
 
-host, port, timeout = sys.argv[1], int(sys.argv[2]), float(sys.argv[3])
+url, timeout = sys.argv[1], float(sys.argv[2])
 deadline = time.monotonic() + timeout
+
+async def probe():
+    async with websockets.connect(url, open_timeout=2, close_timeout=1) as ws:
+        await ws.send(json.dumps({"session_id": "__startup_probe__"}))
+        await ws.recv()
+
 while time.monotonic() < deadline:
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        sock.settimeout(1)
-        if sock.connect_ex((host, port)) == 0:
-            sys.exit(0)
-    time.sleep(0.5)
-print(f"Timed out waiting for {host}:{port}", file=sys.stderr)
+    try:
+        asyncio.run(probe())
+        sys.exit(0)
+    except Exception:
+        time.sleep(0.5)
+print(f"Timed out waiting for {url}", file=sys.stderr)
 sys.exit(1)
 PY
 }
@@ -115,6 +122,9 @@ trap cleanup EXIT INT TERM
 
 echo "Syncing Python environment..."
 uv sync
+
+echo "Initializing database and semantic index before serving..."
+uv run python init_data.py --demo-dir "$DEMO_DIR"
 
 echo "Starting v1 on http://${HOST}:${V1_PORT}"
 uv run python v1/server.py --host "$HOST" --port "$V1_PORT" --import-demo --demo-dir "$DEMO_DIR" &
@@ -139,7 +149,7 @@ pids+=("$!")
 wait_http "v1" "http://${HOST}:${V1_PORT}/health" "$STARTUP_TIMEOUT"
 wait_http "v2" "http://${HOST}:${V2_PORT}/health" "$STARTUP_TIMEOUT"
 wait_http "v3" "http://${HOST}:${V3_PORT}/health" "$STARTUP_TIMEOUT"
-wait_tcp "v3 WebSocket" "$HOST" "$V3_WS_PORT" "$STARTUP_TIMEOUT"
+wait_ws "v3 WebSocket" "ws://${HOST}:${V3_WS_PORT}/v3/chat/ws" "$STARTUP_TIMEOUT"
 wait_http "API gateway" "http://${HOST}:${API_GATEWAY_PORT}/health" "$STARTUP_TIMEOUT"
 wait_http "web UI" "http://${HOST}:${WEBUI_PORT}/" "$STARTUP_TIMEOUT"
 
