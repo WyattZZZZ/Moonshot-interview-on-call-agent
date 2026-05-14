@@ -11,6 +11,7 @@ if "%V3_PORT%"=="" set "V3_PORT=8003"
 if "%V3_WS_PORT%"=="" set "V3_WS_PORT=8004"
 if "%WEBUI_PORT%"=="" set "WEBUI_PORT=4173"
 if "%DEMO_DIR%"=="" set "DEMO_DIR=..\coding-exam\question-1\data"
+if "%STARTUP_TIMEOUT%"=="" set "STARTUP_TIMEOUT=240"
 if "%HF_ENDPOINT%"=="" set "HF_ENDPOINT=https://huggingface.co"
 if "%HF_HUB_DISABLE_XET%"=="" set "HF_HUB_DISABLE_XET=1"
 if "%ON_CALL_AGENT_CHROMA_DIR%"=="" set "ON_CALL_AGENT_CHROMA_DIR=.\database\chroma"
@@ -48,6 +49,10 @@ start "on-call-agent gateway" cmd /k "cd /d ""%CD%"" && uv run python dev_gatewa
 
 echo Starting web UI on http://%HOST%:%WEBUI_PORT%
 start "on-call-agent webui" cmd /k "cd /d ""%CD%"" && uv run python -m http.server %WEBUI_PORT% --bind %HOST% --directory webui"
+
+echo Waiting for local services...
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$timeout=[int]'%STARTUP_TIMEOUT%'; $urls=@('http://%HOST%:%V1_PORT%/health','http://%HOST%:%V2_PORT%/health','http://%HOST%:%V3_PORT%/health','http://%HOST%:%API_GATEWAY_PORT%/health','http://%HOST%:%WEBUI_PORT%/'); foreach($url in $urls){ $deadline=(Get-Date).AddSeconds($timeout); $ok=$false; while((Get-Date) -lt $deadline){ try { $r=Invoke-WebRequest -UseBasicParsing -Uri $url -TimeoutSec 2; if($r.StatusCode -ge 200 -and $r.StatusCode -lt 500){ $ok=$true; break } } catch { Start-Sleep -Seconds 1 } }; if(-not $ok){ Write-Error ('Timed out waiting for '+$url); exit 1 } }"
+if errorlevel 1 exit /b 1
 
 set "FRONTEND_URL=http://%HOST%:%WEBUI_PORT%/#v1"
 echo.

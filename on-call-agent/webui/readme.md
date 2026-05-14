@@ -1,6 +1,6 @@
 # On-Call Agent Web UI
 
-这是 v1、v2、v3 路由的静态浏览器界面。
+这是 v1、v2、v3 路由的静态浏览器界面。界面文案以中文为主，技术标识、接口路径和事件类型保留英文。
 
 ## 启动
 
@@ -59,7 +59,7 @@ http://127.0.0.1:4173/?view=v3#v3
 
 ## v3 流式聊天
 
-v3 聊天界面使用 WebSocket 流式输出：
+v3 聊天界面使用 WebSocket 流式输出，界面展示的接口为 `POST /v3/chat/session + WebSocket`：
 
 1. `POST /v3/chat/session`
 2. 打开返回的 `ws_url`
@@ -73,6 +73,8 @@ v3 聊天界面使用 WebSocket 流式输出：
 - 每一次完成的 `readFile` 工具调用
 - 最终答案
 - 运行时错误
+
+前端会优先使用后端返回的 `ws_url`。如果返回相对路径或缺省值，前端会根据当前 API base 推导 `ws://` 或 `wss://` 地址。
 
 最终答案会按基础 Markdown 渲染。支持标题、段落、有序列表、无序列表、引用、加粗、斜体、行内代码、链接和 fenced code block。代码块和 trace payload 会被限制在聊天气泡内部，横向溢出时只在气泡内滚动。
 

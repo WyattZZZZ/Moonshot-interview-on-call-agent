@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -11,9 +11,9 @@
       <header class="topbar">
         <div>
           <p class="eyebrow">On-call Agent</p>
-          <h1>Search and answer from SOPs</h1>
+          <h1>SOP 检索与值班问答</h1>
         </div>
-        <nav class="version-tabs" aria-label="Agent versions">
+        <nav class="version-tabs" aria-label="Agent 版本">
           <button class="version-tab active" type="button" data-view="v1" aria-current="page">v1</button>
           <button class="version-tab" type="button" data-view="v2">v2</button>
           <button class="version-tab" type="button" data-view="v3">v3</button>
@@ -24,8 +24,8 @@
         <section class="control-panel" aria-labelledby="modeHeading">
           <div class="panel-heading">
             <div>
-              <h2 id="modeHeading">v1 Keyword Search</h2>
-              <p id="modeCopy">Upload SOP HTML, then query the keyword search endpoint.</p>
+              <h2 id="modeHeading">v1 关键词检索</h2>
+              <p id="modeCopy">上传 SOP HTML，然后使用关键词检索接口查询。</p>
             </div>
           </div>
         </section>
@@ -33,54 +33,54 @@
         <section id="searchView" class="view-stack">
           <section class="work-panel" aria-labelledby="uploadHeading">
             <div class="section-heading">
-              <h2 id="uploadHeading">Upload HTML</h2>
+              <h2 id="uploadHeading">上传 HTML</h2>
               <span id="uploadEndpoint" class="endpoint-badge">POST /v1/documents</span>
             </div>
             <form id="uploadForm" class="upload-form">
               <div class="field-grid">
                 <label>
-                  <span>Document ID</span>
+                  <span>文档 ID</span>
                   <input id="docIdInput" name="docId" type="text" placeholder="sop-011" autocomplete="off">
                 </label>
                 <label>
-                  <span>HTML file</span>
+                  <span>HTML 文件</span>
                   <input id="htmlFileInput" name="htmlFile" type="file" accept=".html,.htm,text/html">
                 </label>
               </div>
               <label>
-                <span>HTML content</span>
-                <textarea id="htmlTextInput" name="htmlText" rows="9" placeholder="Paste HTML here or choose a file above."></textarea>
+                <span>HTML 内容</span>
+                <textarea id="htmlTextInput" name="htmlText" rows="9" placeholder="在这里粘贴 HTML，或选择上方文件。"></textarea>
               </label>
               <label class="checkbox-row">
                 <input id="replaceInput" name="replace" type="checkbox">
-                <span>Overwrite if this document ID already exists</span>
+                <span>如果文档 ID 已存在则覆盖</span>
               </label>
               <div class="action-row">
-                <button type="submit">Upload</button>
-                <button id="clearUpload" class="ghost-button" type="button">Clear</button>
-                <span id="uploadStatus" class="inline-status">No upload yet</span>
+                <button type="submit">上传</button>
+                <button id="clearUpload" class="ghost-button" type="button">清空</button>
+                <span id="uploadStatus" class="inline-status">尚未上传</span>
               </div>
             </form>
           </section>
 
           <section class="work-panel" aria-labelledby="searchHeading">
             <div class="section-heading">
-              <h2 id="searchHeading">Search</h2>
+              <h2 id="searchHeading">搜索</h2>
               <span id="searchEndpoint" class="endpoint-badge">GET /v1/search</span>
             </div>
             <form id="searchForm" class="search-form">
-              <label class="visually-hidden" for="queryInput">Search query</label>
-              <input id="queryInput" name="q" type="search" placeholder="Search by service, symptom, alert, or runbook" autocomplete="off">
-              <button type="submit">Search</button>
+              <label class="visually-hidden" for="queryInput">搜索问题</label>
+              <input id="queryInput" name="q" type="search" placeholder="按服务、症状、告警或 SOP 搜索" autocomplete="off">
+              <button type="submit">搜索</button>
             </form>
           </section>
 
           <section class="results-section" aria-live="polite" aria-busy="false">
             <div class="results-header">
-              <h2>Results</h2>
-              <span id="resultMeta">No search yet</span>
+              <h2>结果</h2>
+              <span id="resultMeta">尚未搜索</span>
             </div>
-            <div id="statusMessage" class="status-message">Enter a query to search the v1 backend.</div>
+            <div id="statusMessage" class="status-message">输入问题后搜索 v1 后端。</div>
             <ol id="resultsList" class="results-list"></ol>
           </section>
         </section>
@@ -88,23 +88,23 @@
         <section id="chatView" class="view-stack hidden">
           <section class="work-panel chat-panel" aria-labelledby="chatHeading">
             <div class="section-heading">
-              <h2 id="chatHeading">Agent Chat</h2>
-              <span class="endpoint-badge">POST /v3/chat</span>
+              <h2 id="chatHeading">Agent 聊天</h2>
+              <span class="endpoint-badge">POST /v3/chat/session + WebSocket</span>
             </div>
             <div id="chatMessages" class="chat-messages" aria-live="polite">
-              <div class="chat-empty">Ask an on-call question to inspect the answer and tool calls.</div>
+              <div class="chat-empty">输入值班问题后，可以实时查看检索、思考和工具调用。</div>
             </div>
             <div class="weight-control" aria-labelledby="weightLabel">
               <div class="weight-header">
-                <label id="weightLabel" for="lexicalWeightInput">Scoring weight</label>
-                <span id="weightValue">Lexical 50% / Semantic 50%</span>
+                <label id="weightLabel" for="lexicalWeightInput">评分权重</label>
+                <span id="weightValue">词频 50% / 语义 50%</span>
               </div>
               <input id="lexicalWeightInput" type="range" min="0" max="100" step="5" value="50">
             </div>
             <form id="chatForm" class="chat-form">
-              <label class="visually-hidden" for="chatInput">Message</label>
+              <label class="visually-hidden" for="chatInput">消息</label>
               <textarea id="chatInput" rows="3" placeholder="数据库主从延迟超过30秒怎么处理？"></textarea>
-              <button type="submit">Send</button>
+              <button type="submit">发送</button>
             </form>
           </section>
         </section>

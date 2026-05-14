@@ -192,14 +192,14 @@
 
   function renderResults(results, query) {
     resultsList.replaceChildren();
-    resultMeta.textContent = `${results.length} result${results.length === 1 ? "" : "s"}`;
+    resultMeta.textContent = `${results.length} 条结果`;
 
     if (!results.length) {
-      setStatus(`No results for "${query}".`, false);
+      setStatus(`没有找到 "${query}" 的结果。`, false);
       return;
     }
 
-    setStatus(`Showing ${currentView} matches for "${query}".`, false);
+    setStatus(`正在显示 ${currentView} 对 "${query}" 的匹配结果。`, false);
 
     for (const item of results) {
       const li = document.createElement("li");
@@ -230,7 +230,7 @@
         matchedChunk.className = "matched-chunk";
 
         const summary = document.createElement("summary");
-        summary.textContent = "Matched chunk";
+        summary.textContent = "命中 chunk";
 
         const pre = document.createElement("pre");
         pre.textContent = matchedChunkText;
@@ -286,7 +286,7 @@
   function updateWeightDisplay() {
     const lexical = Number(lexicalWeightInput.value);
     const semantic = 100 - lexical;
-    weightValue.textContent = `Lexical ${lexical}% / Semantic ${semantic}%`;
+    weightValue.textContent = `词频 ${lexical}% / 语义 ${semantic}%`;
   }
 
   function currentWeights() {
@@ -300,11 +300,11 @@
   function backendErrorMessage(error, path) {
     const baseMessage = error.message || "Request failed.";
     if (/HTTP 404/.test(baseMessage)) {
-      return `${baseMessage}. This backend may not expose ${path}; check API base or start the matching v${currentView.slice(1)} backend.`;
+      return `${baseMessage}. 当前后端可能没有暴露 ${path}，请检查 API base 或启动对应的 v${currentView.slice(1)} 后端。`;
     }
 
     if (/Failed to fetch|NetworkError|Load failed/i.test(baseMessage)) {
-      return `${baseMessage}. Check that the API gateway is running and CORS is configured.`;
+      return `${baseMessage}. 请确认 API 网关已启动且 CORS 配置正确。`;
     }
 
     return baseMessage;
@@ -328,21 +328,21 @@
     chatView.classList.toggle("hidden", isSearchView);
 
     if (currentView === "v1") {
-      modeHeading.textContent = "v1 Keyword Search";
-      modeCopy.textContent = "Upload SOP HTML, then query the keyword search endpoint.";
+      modeHeading.textContent = "v1 关键词检索";
+      modeCopy.textContent = "上传 SOP HTML，然后使用关键词检索接口查询。";
     } else if (currentView === "v2") {
-      modeHeading.textContent = "v2 Semantic Search";
-      modeCopy.textContent = "Use the same upload and search workflow against the v2 semantic endpoints.";
+      modeHeading.textContent = "v2 语义检索";
+      modeCopy.textContent = "使用同一套上传和搜索流程，调用 v2 语义检索接口。";
     } else {
-      modeHeading.textContent = "v3 Agent Chat";
-      modeCopy.textContent = "Ask on-call questions and inspect the agent answer plus tool steps.";
+      modeHeading.textContent = "v3 Agent 聊天";
+      modeCopy.textContent = "提问值班问题，并实时查看检索、模型状态和工具调用。";
     }
 
     uploadEndpoint.textContent = `POST /${currentView}/documents`;
     searchEndpoint.textContent = `GET /${currentView}/search`;
     resultsList.replaceChildren();
-    resultMeta.textContent = "No search yet";
-    setStatus(`Enter a query to search the ${currentView} backend.`, false);
+    resultMeta.textContent = "尚未搜索";
+    setStatus(`输入问题后搜索 ${currentView} 后端。`, false);
     syncUrl();
   }
 
@@ -353,14 +353,14 @@
 
     if (!trimmed) {
       resultsList.replaceChildren();
-      resultMeta.textContent = "No search yet";
-      setStatus(`Enter a query to search the ${currentView} backend.`, false);
+      resultMeta.textContent = "尚未搜索";
+      setStatus(`输入问题后搜索 ${currentView} 后端。`, false);
       return;
     }
 
     setSearchBusy(true);
-    setStatus("Searching...", false);
-    resultMeta.textContent = "Loading";
+    setStatus("搜索中...", false);
+    resultMeta.textContent = "加载中";
 
     try {
       const path = `/${currentView}/search?q=${encodeURIComponent(trimmed)}`;
@@ -376,7 +376,7 @@
       renderResults(normalizeResults(payload), trimmed);
     } catch (error) {
       resultsList.replaceChildren();
-      resultMeta.textContent = "Search failed";
+      resultMeta.textContent = "搜索失败";
       setStatus(backendErrorMessage(error, `/${currentView}/search`), true);
     } finally {
       setSearchBusy(false);
@@ -400,7 +400,7 @@
 
     const file = htmlFileInput.files && htmlFileInput.files[0];
     if (!file) {
-      throw new Error("Choose an HTML file or paste HTML content.");
+      throw new Error("请选择 HTML 文件或粘贴 HTML 内容。");
     }
 
     return await file.text();
@@ -409,7 +409,7 @@
   async function uploadDocument() {
     const docId = docIdInput.value.trim();
     if (!docId) {
-      throw new Error("Document ID is required.");
+      throw new Error("文档 ID 必填。");
     }
 
     const html = await readUploadHtml();
@@ -441,7 +441,7 @@
 
     const label = document.createElement("div");
     label.className = "chat-role";
-    label.textContent = role === "user" ? "You" : "Agent";
+    label.textContent = role === "user" ? "你" : "Agent";
 
     const body = document.createElement("div");
     body.className = "chat-body markdown";
@@ -456,7 +456,7 @@
     const status = document.createElement("div");
     status.className = "chat-status";
     if (role !== "user") {
-      status.textContent = "Waiting for session...";
+      status.textContent = "等待会话创建...";
     }
 
     message.append(label, status, body, trace);
@@ -517,13 +517,13 @@
     details.className = "candidate-list";
 
     const summary = document.createElement("summary");
-    summary.textContent = `Candidates (${candidates.length})`;
+    summary.textContent = `候选文档 (${candidates.length})`;
 
     const list = document.createElement("ol");
     for (const candidate of candidates) {
       const item = document.createElement("li");
       const title = candidate.title || candidate.id || candidate.filename || "candidate";
-      item.textContent = `${title} · ${candidate.filename || "n/a"} · combined ${formatScore(candidate.combined_score)} · keyword ${formatScore(candidate.keyword_score)} · semantic ${formatScore(candidate.semantic_score)}`;
+      item.textContent = `${title} · ${candidate.filename || "n/a"} · 综合 ${formatScore(candidate.combined_score)} · 词频 ${formatScore(candidate.keyword_score)} · 语义 ${formatScore(candidate.semantic_score)}`;
       list.append(item);
     }
 
@@ -727,10 +727,10 @@
   }
 
   function appendToolTrace(container, step) {
-    const title = step.ok ? `Tool ${step.name} ok` : `Tool ${step.name} failed`;
+    const title = step.ok ? `工具 ${step.name} 调用成功` : `工具 ${step.name} 调用失败`;
     const text = [
-      step.arguments ? `arguments: ${JSON.stringify(step.arguments)}` : "",
-      step.output_preview ? `output: ${step.output_preview}` : "",
+      step.arguments ? `参数: ${JSON.stringify(step.arguments)}` : "",
+      step.output_preview ? `输出预览: ${step.output_preview}` : "",
     ]
       .filter(Boolean)
       .join("\n");
@@ -738,11 +738,11 @@
   }
 
   function appendRetrievalTrace(container, event) {
-    const title = `Retrieval finished with ${event.candidate_count || 0} candidates`;
+    const title = `检索完成，候选文档 ${event.candidate_count || 0} 个`;
     appendTraceItem(
       container,
       title,
-      `query: ${event.query || ""}\nkeyword: ${formatScore(event.keyword_weight)}\nsemantic: ${formatScore(event.semantic_weight)}`,
+      `query: ${event.query || ""}\n词频权重: ${formatScore(event.keyword_weight)}\n语义权重: ${formatScore(event.semantic_weight)}\n阈值: ${formatScore(event.threshold)}`,
       "retrieval"
     );
     if (Array.isArray(event.candidates) && event.candidates.length) {
@@ -767,9 +767,28 @@
     return await response.json();
   }
 
+  function resolveWebSocketUrl(value) {
+    const raw = String(value || "/v3/chat/ws").trim();
+    try {
+      const parsed = new URL(raw);
+      if (parsed.protocol === "ws:" || parsed.protocol === "wss:") {
+        return parsed.href;
+      }
+    } catch (_error) {
+      // Relative URL fallback below.
+    }
+
+    const base = new URL(getApiBase(), window.location.href);
+    base.protocol = base.protocol === "https:" ? "wss:" : "ws:";
+    base.pathname = raw.startsWith("/") ? raw : `/${raw}`;
+    base.search = "";
+    base.hash = "";
+    return base.href;
+  }
+
   function streamChatSession(session, bubble, trimmedMessage) {
     return new Promise((resolve, reject) => {
-      const socket = new WebSocket(session.ws_url);
+      const socket = new WebSocket(resolveWebSocketUrl(session.ws_url));
       let settled = false;
 
       const finish = (callback, value) => {
@@ -781,7 +800,7 @@
       };
 
       socket.addEventListener("open", () => {
-        bubble.setStatus("Connected. Waiting for model...");
+        bubble.setStatus("已连接，等待模型响应...");
         socket.send(JSON.stringify({ session_id: session.session_id }));
       });
 
@@ -796,34 +815,34 @@
 
         if (payload.type === "status") {
           bubble.setStatus(payload.message || "Thinking...");
-          appendTraceItem(bubble.trace, payload.message || "Status update", payload.phase || "", "status");
+          appendTraceItem(bubble.trace, payload.message || "状态更新", payload.phase || "", "status");
           return;
         }
 
         if (payload.type === "retrieval") {
-          bubble.setStatus("Candidates ready. Model is thinking...");
+          bubble.setStatus("候选文档已准备，模型正在思考...");
           appendRetrievalTrace(bubble.trace, payload);
           return;
         }
 
         if (payload.type === "assistant") {
           if (payload.content) {
-            appendTraceItem(bubble.trace, "Assistant draft", payload.content, "assistant");
+            appendTraceItem(bubble.trace, "模型草稿", payload.content, "assistant");
           } else {
-            appendTraceItem(bubble.trace, `Assistant round ${payload.round || ""}`.trim(), `tool calls: ${payload.tool_call_count || 0}`, "assistant");
+            appendTraceItem(bubble.trace, `模型第 ${payload.round || ""} 轮`.trim(), `工具调用数: ${payload.tool_call_count || 0}`, "assistant");
           }
-          bubble.setStatus("Model is thinking...");
+          bubble.setStatus("模型正在思考...");
           return;
         }
 
         if (payload.type === "tool") {
           appendToolTrace(bubble.trace, payload);
-          bubble.setStatus(payload.ok ? "Tool call finished." : "Tool call failed.", !payload.ok);
+          bubble.setStatus(payload.ok ? "工具调用完成。" : "工具调用失败。", !payload.ok);
           return;
         }
 
         if (payload.type === "final") {
-          bubble.setStatus("Answer ready.");
+          bubble.setStatus("答案已生成。");
           bubble.setBody(payload.answer || "(empty answer)");
           chatHistory = [
             ...chatHistory,
@@ -836,18 +855,18 @@
         }
 
         if (payload.type === "error") {
-          finish(reject, new Error(payload.message || "WebSocket request failed."));
+          finish(reject, new Error(payload.message || "WebSocket 请求失败。"));
           socket.close();
         }
       });
 
       socket.addEventListener("error", () => {
-        finish(reject, new Error("WebSocket connection failed."));
+        finish(reject, new Error("WebSocket 连接失败。"));
       });
 
       socket.addEventListener("close", () => {
         if (!settled) {
-          finish(reject, new Error("WebSocket closed before the answer was ready."));
+          finish(reject, new Error("WebSocket 在答案生成前关闭。"));
         }
       });
     });
@@ -862,12 +881,12 @@
     appendChatMessage("user", trimmed);
     chatInput.value = "";
     const pending = appendChatMessage("agent", "");
-    pending.setStatus("Preparing session...");
+    pending.setStatus("正在创建会话...");
     chatForm.querySelector("button").disabled = true;
 
     try {
       const session = await openChatSession({ message: trimmed, history: chatHistory, ...currentWeights() });
-      pending.setStatus("Session open. Waiting for model...");
+      pending.setStatus("会话已创建，等待模型响应...");
       await streamChatSession(session, pending, trimmed);
     } catch (error) {
       pending.markError(backendErrorMessage(error, "/v3/chat/session"));
@@ -893,12 +912,12 @@
   uploadForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     setUploadBusy(true);
-    setUploadStatus("Uploading...", false);
+    setUploadStatus("上传中...", false);
 
     try {
       const payload = await uploadDocument();
       const title = payload.title ? ` (${payload.title})` : "";
-      setUploadStatus(`Uploaded ${payload.id || docIdInput.value}${title}.`, false);
+      setUploadStatus(`已上传 ${payload.id || docIdInput.value}${title}。`, false);
     } catch (error) {
       setUploadStatus(backendErrorMessage(error, `/${currentView}/documents`), true);
     } finally {
@@ -913,7 +932,7 @@
 
   clearUpload.addEventListener("click", () => {
     uploadForm.reset();
-    setUploadStatus("No upload yet", false);
+    setUploadStatus("尚未上传", false);
   });
 
   chatForm.addEventListener("submit", (event) => {

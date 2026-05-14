@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import os
+from threading import Lock
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any
 
 import chromadb
 
@@ -10,6 +11,9 @@ import chromadb
 DATABASE_DIR = Path(__file__).resolve().parent
 DEFAULT_CHROMA_DIR = DATABASE_DIR / "chroma"
 COLLECTION_NAME = "v2_chunks"
+_CACHE_LOCK = Lock()
+_CLIENTS: dict[Path, chromadb.PersistentClient] = {}
+_COLLECTIONS: dict[Path, Any] = {}
 
 
 def default_chroma_path() -> Path:
@@ -19,15 +23,25 @@ def default_chroma_path() -> Path:
 def _client() -> chromadb.PersistentClient:
     path = default_chroma_path()
     path.mkdir(parents=True, exist_ok=True)
-    return chromadb.PersistentClient(path=str(path))
+    with _CACHE_LOCK:
+        client = _CLIENTS.get(path)
+        if client is None:
+            client = chromadb.PersistentClient(path=str(path))
+            _CLIENTS[path] = client
+        return client
 
 
 def get_collection():
+    path = default_chroma_path()
+    with _CACHE_LOCK:
+        collection = _COLLECTIONS.get(path)
+        if collection is not None:
+            return collection
     client = _client()
-    return client.get_or_create_collection(
-        name=COLLECTION_NAME,
-        metadata={"hnsw:space": "cosine"},
-    )
+    collection = client.get_or_create_collection(name=COLLECTION_NAME, metadata={"hnsw:space": "cosine"})
+    with _CACHE_LOCK:
+        _COLLECTIONS[path] = collection
+    return collection
 
 
 def upsert_chunks(
@@ -54,6 +68,7 @@ def upsert_chunks(
             "title": title,
             "path": path,
             "embedding_model": embedding_model or "",
+            "chunk_count": len(chunks),
         }
         for chunk in chunks
     ]

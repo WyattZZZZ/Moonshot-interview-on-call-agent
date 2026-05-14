@@ -8,6 +8,7 @@ import os
 import queue
 import sys
 import threading
+import time
 import uuid
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -36,6 +37,8 @@ JSON_HEADERS = {"Content-Type": "application/json; charset=utf-8"}
 HTML_HEADERS = {"Content-Type": "text/html; charset=utf-8"}
 MAX_JSON_BYTES = 2 * 1024 * 1024
 WEBSOCKET_CLOSE_SESSION_ERROR = 4404
+DEFAULT_SESSION_TTL_SECONDS = 300
+DEFAULT_MAX_SESSIONS = 128
 
 
 class APIError(Exception):
@@ -45,19 +48,39 @@ class APIError(Exception):
 
 
 class ChatSessionStore:
-    def __init__(self) -> None:
+    def __init__(self, *, ttl_seconds: int = DEFAULT_SESSION_TTL_SECONDS, max_sessions: int = DEFAULT_MAX_SESSIONS) -> None:
         self._lock = threading.Lock()
         self._sessions: dict[str, dict[str, Any]] = {}
+        self.ttl_seconds = max(30, ttl_seconds)
+        self.max_sessions = max(1, max_sessions)
 
     def create(self, payload: dict[str, Any]) -> str:
         session_id = uuid.uuid4().hex
         with self._lock:
-            self._sessions[session_id] = payload
+            self._prune_locked()
+            if len(self._sessions) >= self.max_sessions:
+                oldest = min(self._sessions, key=lambda key: self._sessions[key].get("created_at", 0.0))
+                self._sessions.pop(oldest, None)
+            self._sessions[session_id] = {"created_at": time.time(), "payload": payload}
         return session_id
 
     def pop(self, session_id: str) -> dict[str, Any] | None:
         with self._lock:
-            return self._sessions.pop(session_id, None)
+            self._prune_locked()
+            item = self._sessions.pop(session_id, None)
+        if not item:
+            return None
+        return item.get("payload")
+
+    def _prune_locked(self) -> None:
+        now = time.time()
+        expired = [
+            session_id
+            for session_id, item in self._sessions.items()
+            if now - float(item.get("created_at", 0.0)) > self.ttl_seconds
+        ]
+        for session_id in expired:
+            self._sessions.pop(session_id, None)
 
 
 class OnCallV3Handler(BaseHTTPRequestHandler):
@@ -192,14 +215,17 @@ class OnCallV3Server(ThreadingHTTPServer):
         db_path: Path,
         data_dir: Path,
         ws_port: int,
+        websocket_url: str | None = None,
+        session_ttl_seconds: int = DEFAULT_SESSION_TTL_SECONDS,
+        max_sessions: int = DEFAULT_MAX_SESSIONS,
     ) -> None:
         super().__init__(server_address, handler_class)
         self.db_path = db_path
         self.data_dir = data_dir
-        self.session_store = ChatSessionStore()
+        self.session_store = ChatSessionStore(ttl_seconds=session_ttl_seconds, max_sessions=max_sessions)
         self.websocket_host = _public_host(server_address[0])
         self.websocket_port = ws_port
-        self.websocket_url = f"ws://{self.websocket_host}:{self.websocket_port}/v3/chat/ws"
+        self.websocket_url = websocket_url or f"ws://{self.websocket_host}:{self.websocket_port}/v3/chat/ws"
 
 
 def _public_host(host: str) -> str:
@@ -355,6 +381,9 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=8000)
     parser.add_argument("--ws-port", type=int, default=int(os.environ.get("V3_WS_PORT", 8004)))
+    parser.add_argument("--ws-url", default=os.environ.get("V3_WS_URL", ""))
+    parser.add_argument("--session-ttl", type=int, default=int(os.environ.get("V3_SESSION_TTL_SECONDS", DEFAULT_SESSION_TTL_SECONDS)))
+    parser.add_argument("--max-sessions", type=int, default=int(os.environ.get("V3_MAX_SESSIONS", DEFAULT_MAX_SESSIONS)))
     parser.add_argument("--db", type=Path, default=db.default_db_path())
     parser.add_argument("--data-dir", type=Path, default=DEFAULT_DATA_DIR)
     args = parser.parse_args()
@@ -364,7 +393,16 @@ def main() -> None:
         db.initialize(conn)
 
     mimetypes.add_type("application/json", ".json")
-    server = OnCallV3Server((args.host, args.port), OnCallV3Handler, args.db, args.data_dir, args.ws_port)
+    server = OnCallV3Server(
+        (args.host, args.port),
+        OnCallV3Handler,
+        args.db,
+        args.data_dir,
+        args.ws_port,
+        websocket_url=args.ws_url.strip() or None,
+        session_ttl_seconds=args.session_ttl,
+        max_sessions=args.max_sessions,
+    )
     websocket_thread = start_websocket_server(server)
     print(f"Serving v3 on http://{args.host}:{args.port} using {args.db}; data dir {args.data_dir}")
     print(f"WebSocket stream on ws://{server.websocket_host}:{server.websocket_port}/v3/chat/ws")

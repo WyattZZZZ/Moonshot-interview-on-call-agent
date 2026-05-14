@@ -54,6 +54,8 @@ def initialize(conn: sqlite3.Connection) -> None:
             clean_text TEXT NOT NULL,
             semantic_profile TEXT NULL,
             embedding TEXT NULL,
+            semantic_index_status TEXT NOT NULL DEFAULT '',
+            semantic_index_error TEXT NOT NULL DEFAULT '',
             path TEXT NOT NULL DEFAULT '',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
@@ -83,6 +85,10 @@ def ensure_document_columns(conn: sqlite3.Connection) -> None:
         conn.execute("ALTER TABLE documents ADD COLUMN semantic_profile TEXT NULL")
     if "embedding" not in columns:
         conn.execute("ALTER TABLE documents ADD COLUMN embedding TEXT NULL")
+    if "semantic_index_status" not in columns:
+        conn.execute("ALTER TABLE documents ADD COLUMN semantic_index_status TEXT NOT NULL DEFAULT ''")
+    if "semantic_index_error" not in columns:
+        conn.execute("ALTER TABLE documents ADD COLUMN semantic_index_error TEXT NOT NULL DEFAULT ''")
     if "path" not in columns:
         conn.execute("ALTER TABLE documents ADD COLUMN path TEXT NOT NULL DEFAULT ''")
 
@@ -225,10 +231,24 @@ def clear_embedding(conn: sqlite3.Connection, document_id: str) -> None:
     conn.execute("DELETE FROM embeddings WHERE document_id = ?", (document_id,))
 
 
+def set_semantic_index_status(conn: sqlite3.Connection, document_id: str, status: str, error: str = "") -> None:
+    conn.execute(
+        """
+        UPDATE documents
+           SET semantic_index_status = ?,
+               semantic_index_error = ?,
+               updated_at = ?
+         WHERE id = ?
+        """,
+        (status, error[:1000], utc_now(), document_id),
+    )
+
+
 def get_document(conn: sqlite3.Connection, doc_id: str) -> dict[str, Any] | None:
     row = conn.execute(
         """
-        SELECT id, title, html, clean_text, semantic_profile, embedding, path, created_at, updated_at
+        SELECT id, title, html, clean_text, semantic_profile, embedding,
+               semantic_index_status, semantic_index_error, path, created_at, updated_at
           FROM documents
          WHERE id = ?
         """,

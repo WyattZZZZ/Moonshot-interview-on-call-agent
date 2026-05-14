@@ -48,7 +48,7 @@ http://127.0.0.1:4173/#v1
 - v3 WebSocket 流：`8004`
 - Web UI：`4173`
 
-启动脚本会在启动前检测端口占用。设置 `NO_OPEN=1` 可以只启动服务，不自动打开浏览器。
+启动脚本会在启动前检测端口占用，并在启动后轮询 v1、v2、v3、gateway 和 Web UI 的健康状态。设置 `NO_OPEN=1` 可以只启动服务，不自动打开浏览器；设置 `STARTUP_TIMEOUT=秒数` 可以调整等待服务 ready 的最长时间。
 
 ## API 网关
 
@@ -81,6 +81,8 @@ Web UI 使用流式路径：
 
 每个 `tool` 事件都会在工具调用结束后立刻发送，因此前端可以实时显示运行进度，不必等最终答案返回。
 
+v3 当前只保留综合评分 `>= 0.75` 的候选文档。这个阈值由代码常量统一控制，检索事件和错误文案都会返回同一个值。
+
 ## Moonshot Runtime
 
 环境变量：
@@ -91,6 +93,9 @@ MOONSHOT_BASE_URL=https://api.moonshot.cn/v1
 MOONSHOT_MODEL=kimi-k2.6
 MOONSHOT_MAX_TOKENS=30000
 MOONSHOT_TEMPERATURE=1
+MOONSHOT_MAX_RETRIES=3
+MOONSHOT_RETRY_BASE_SECONDS=0.75
+MOONSHOT_RETRY_MAX_SECONDS=8
 ```
 
 兼容性回退变量：
@@ -100,6 +105,10 @@ MOONSHOT_TEMPERATURE=1
 - `OPENAI_API_KEY`
 - `OPENAI_BASE_URL`
 - `OPENAI_MODEL`
+
+Moonshot runtime 会对 `429/5xx` 和网络错误执行指数退避重试。遇到 token limit 的 `400` 错误时，Agent 会压缩历史消息和工具输出后再重试一次。
+
+v3 WebSocket session 默认 300 秒过期，最多保留 128 个待握手 session。可以通过 `V3_SESSION_TTL_SECONDS`、`V3_MAX_SESSIONS` 和 `V3_WS_URL` 覆盖。
 
 ## 验证命令
 

@@ -12,7 +12,8 @@ if str(V3_ROOT) not in sys.path:
 
 from agent import run_chat
 from retrieval import CandidateWeights, build_candidates
-from runtime import MoonshotConfig, RuntimeErrorResponse
+from runtime import MoonshotConfig, RuntimeErrorResponse, TokenLimitError
+from server import ChatSessionStore
 from tools import ToolError, read_file
 
 
@@ -35,6 +36,17 @@ class FakeRuntime:
                 ],
             }
         return {"role": "assistant", "content": "根据 sop-001.html，处理步骤是扩容并观察。"}
+
+
+class TokenLimitThenSuccessRuntime:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def chat(self, messages, tools=None):
+        self.calls += 1
+        if self.calls == 1:
+            raise TokenLimitError("Moonshot API HTTP 400: token limit exceeded")
+        return {"role": "assistant", "content": "压缩上下文后回答成功。"}
 
 
 class V3Tests(unittest.TestCase):
@@ -162,6 +174,31 @@ class V3Tests(unittest.TestCase):
         tool_steps = [step for step in result["steps"] if step["type"] == "tool"]
         self.assertEqual(len(tool_steps), 1)
         self.assertTrue(tool_steps[0]["ok"])
+
+    def test_token_limit_error_compacts_context_and_retries_once(self) -> None:
+        runtime = TokenLimitThenSuccessRuntime()
+        result = run_chat(
+            message="OOM 怎么处理",
+            history=[{"role": "user", "content": "很长的历史" * 2000}],
+            weights=CandidateWeights(),
+            db_path=Path("unused.sqlite3"),
+            runtime=runtime,
+            keyword_search=lambda query, limit: [
+                {"id": "sop-001", "title": "OOM", "snippet": "扩容", "score": 1.0}
+            ],
+            semantic_search=lambda query, limit: [
+                {"id": "sop-001", "title": "OOM", "snippet": "观察", "score": 1.0}
+            ],
+        )
+        self.assertEqual(runtime.calls, 2)
+        self.assertIn("成功", result["answer"])
+
+    def test_session_store_evicts_oldest_when_capacity_is_reached(self) -> None:
+        store = ChatSessionStore(max_sessions=1)
+        first = store.create({"message": "first"})
+        second = store.create({"message": "second"})
+        self.assertIsNone(store.pop(first))
+        self.assertEqual(store.pop(second), {"message": "second"})
 
 
 if __name__ == "__main__":

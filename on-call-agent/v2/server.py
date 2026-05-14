@@ -267,25 +267,36 @@ def _store_document_and_chunks(
             path=path,
         )
         db.clear_embedding(conn, doc_id)
+        db.set_semantic_index_status(conn, doc_id, "pending")
 
-    chroma_store.delete_document(doc_id)
-    chroma_store.upsert_chunks(
-        document_id=doc_id,
-        title=title,
-        path=path,
-        embedding_model=embedding_model,
-        chunks=[
-            {
-                "chunk_id": chunk.chunk_id,
-                "chunk_index": chunk.chunk_index,
-                "heading": chunk.heading,
-                "heading_path": chunk.heading_path,
-                "chunk_text": chunk.chunk_text,
-            }
-            for chunk in chunks
-        ],
-        embeddings=chunk_embeddings,
-    )
+    try:
+        chroma_store.delete_document(doc_id)
+        chroma_store.upsert_chunks(
+            document_id=doc_id,
+            title=title,
+            path=path,
+            embedding_model=embedding_model,
+            chunks=[
+                {
+                    "chunk_id": chunk.chunk_id,
+                    "chunk_index": chunk.chunk_index,
+                    "heading": chunk.heading,
+                    "heading_path": chunk.heading_path,
+                    "chunk_text": chunk.chunk_text,
+                }
+                for chunk in chunks
+            ],
+            embeddings=chunk_embeddings,
+        )
+    except Exception as exc:
+        with db.connection(db_path) as conn:
+            db.initialize(conn)
+            db.set_semantic_index_status(conn, doc_id, "failed", str(exc))
+        raise
+
+    with db.connection(db_path) as conn:
+        db.initialize(conn)
+        db.set_semantic_index_status(conn, doc_id, "ready")
     return document
 
 

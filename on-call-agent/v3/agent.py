@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 from typing import Any, Callable
 
-from retrieval import CandidateWeights, build_candidates
-from runtime import ChatRuntime, MoonshotChatRuntime, READ_FILE_TOOL, RuntimeErrorResponse
+from retrieval import CANDIDATE_THRESHOLD, CandidateWeights, build_candidates
+from runtime import ChatRuntime, MoonshotChatRuntime, READ_FILE_TOOL, RuntimeErrorResponse, TokenLimitError
 from tools import DEFAULT_DATA_DIR, ToolError, read_file
 
 
@@ -85,7 +85,7 @@ def run_chat_stream(
         "query": message,
         "keyword_weight": weights.keyword,
         "semantic_weight": weights.semantic,
-        "threshold": 0.8,
+        "threshold": CANDIDATE_THRESHOLD,
         "candidate_count": len(candidates),
         "candidates": _public_candidates(candidates),
     }
@@ -93,7 +93,7 @@ def run_chat_stream(
     publish(retrieval_step)
     if not candidates:
         result = {
-            "answer": "没有找到综合评分达到 0.7 的候选文档，无法安全调用 readFile 回答。",
+            "answer": f"没有找到综合评分达到 {CANDIDATE_THRESHOLD} 的候选文档，无法安全调用 readFile 回答。",
             "steps": steps,
             "candidates": [],
         }
@@ -110,7 +110,17 @@ def run_chat_stream(
             "round": round_index,
             "message": "模型正在思考",
         })
-        assistant_message = active_runtime.chat(messages, tools=[READ_FILE_TOOL])
+        try:
+            assistant_message = active_runtime.chat(messages, tools=[READ_FILE_TOOL])
+        except TokenLimitError:
+            publish({
+                "type": "status",
+                "phase": "context_compaction",
+                "round": round_index,
+                "message": "上下文过长，正在压缩历史和工具内容后重试",
+            })
+            messages = _compact_messages_for_retry(messages)
+            assistant_message = active_runtime.chat(messages, tools=[READ_FILE_TOOL])
         messages.append(assistant_message)
         tool_calls = assistant_message.get("tool_calls") or []
         publish({
@@ -147,6 +157,30 @@ def _build_messages(*, message: str, history: list[dict[str, Any]], candidates: 
         messages.append(item)
     messages.append({"role": "user", "content": message})
     return messages
+
+
+def _compact_messages_for_retry(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    compacted: list[dict[str, Any]] = []
+    for index, message in enumerate(messages):
+        copied = dict(message)
+        role = copied.get("role")
+        content = copied.get("content")
+        if isinstance(content, str):
+            limit = 4000 if role == "system" and index <= 1 else 1800
+            if role == "tool":
+                limit = 2400
+            copied["content"] = _truncate_text(content, limit)
+        compacted.append(copied)
+
+    if len(compacted) <= 10:
+        return compacted
+    return compacted[:2] + compacted[-8:]
+
+
+def _truncate_text(text: str, limit: int) -> str:
+    if len(text) <= limit:
+        return text
+    return text[:limit].rstrip() + "\n[context compacted]"
 
 
 def _public_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:

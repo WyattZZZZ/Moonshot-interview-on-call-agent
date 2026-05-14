@@ -21,6 +21,7 @@ from database import db
 
 
 SearchFn = Callable[[str, int], list[dict[str, Any]]]
+CANDIDATE_THRESHOLD = 0.75
 
 
 @dataclass(frozen=True)
@@ -47,7 +48,7 @@ def build_candidates(
     weights: CandidateWeights,
     db_path: Path,
     limit: int = 10,
-    threshold: float = 0.7,
+    threshold: float = CANDIDATE_THRESHOLD,
     keyword_search: SearchFn | None = None,
     semantic_search: SearchFn | None = None,
 ) -> list[dict[str, Any]]:

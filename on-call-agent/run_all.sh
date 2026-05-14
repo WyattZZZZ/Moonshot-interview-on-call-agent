@@ -11,6 +11,7 @@ V3_PORT="${V3_PORT:-8003}"
 V3_WS_PORT="${V3_WS_PORT:-8004}"
 WEBUI_PORT="${WEBUI_PORT:-4173}"
 DEMO_DIR="${DEMO_DIR:-../coding-exam/question-1/data}"
+STARTUP_TIMEOUT="${STARTUP_TIMEOUT:-240}"
 
 export HOST API_GATEWAY_PORT V1_PORT V2_PORT V3_PORT V3_WS_PORT WEBUI_PORT
 export HF_ENDPOINT="${HF_ENDPOINT:-https://huggingface.co}"
@@ -45,6 +46,33 @@ PY
   fi
   echo "Port ${port} is already in use on ${HOST}. Set a different port env var or stop the existing process." >&2
   exit 1
+}
+
+wait_http() {
+  local name="$1"
+  local url="$2"
+  local timeout="$3"
+  echo "Waiting for ${name} at ${url}"
+  python3 - "$url" "$timeout" <<'PY'
+import sys
+import time
+import urllib.error
+import urllib.request
+
+url, timeout = sys.argv[1], float(sys.argv[2])
+deadline = time.monotonic() + timeout
+last = ""
+while time.monotonic() < deadline:
+    try:
+        with urllib.request.urlopen(url, timeout=2) as response:
+            if 200 <= response.status < 500:
+                sys.exit(0)
+    except Exception as exc:
+        last = str(exc)
+    time.sleep(1)
+print(f"Timed out waiting for {url}: {last}", file=sys.stderr)
+sys.exit(1)
+PY
 }
 
 for port in "$API_GATEWAY_PORT" "$V1_PORT" "$V2_PORT" "$V3_PORT" "$V3_WS_PORT" "$WEBUI_PORT"; do
@@ -83,6 +111,12 @@ pids+=("$!")
 echo "Starting web UI on http://${HOST}:${WEBUI_PORT}"
 uv run python -m http.server "$WEBUI_PORT" --bind "$HOST" --directory webui &
 pids+=("$!")
+
+wait_http "v1" "http://${HOST}:${V1_PORT}/health" "$STARTUP_TIMEOUT"
+wait_http "v2" "http://${HOST}:${V2_PORT}/health" "$STARTUP_TIMEOUT"
+wait_http "v3" "http://${HOST}:${V3_PORT}/health" "$STARTUP_TIMEOUT"
+wait_http "API gateway" "http://${HOST}:${API_GATEWAY_PORT}/health" "$STARTUP_TIMEOUT"
+wait_http "web UI" "http://${HOST}:${WEBUI_PORT}/" "$STARTUP_TIMEOUT"
 
 frontend_url="http://${HOST}:${WEBUI_PORT}/#v1"
 echo

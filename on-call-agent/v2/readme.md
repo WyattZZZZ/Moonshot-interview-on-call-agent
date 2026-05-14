@@ -27,7 +27,7 @@ query 文本使用以下指令前缀：
 为这个句子生成表示以用于检索相关文章：
 ```
 
-chunk 文本由标题路径和 chunk 正文拼接后送入模型。embedding 模型会在进程内缓存，并用锁保护初始化流程，避免并发 v3 请求重复加载模型。
+chunk 文本由标题路径和 chunk 正文拼接后送入模型。embedding 模型会在进程内缓存，并用锁保护初始化流程，避免并发 v3 请求重复加载模型。Chroma client 和 collection 也会按路径缓存，避免每次查询重复初始化持久化客户端。
 
 环境变量：
 
@@ -55,6 +55,10 @@ ON_CALL_AGENT_CHROMA_DIR=./database/chroma
 - SQLite `documents`：规范文档元数据、清洗正文和原始 HTML。
 - Chroma collection：chunk 文本、chunk 元数据和 embedding 向量。
 - 旧的 SQLite 向量字段会在 v2 文档写入时清空，当前不再用于语义检索。
+- `semantic_index_status`：记录 v2 索引状态，取值通常为 `pending`、`ready` 或 `failed`。
+- `semantic_index_error`：记录最近一次 Chroma 写入失败的错误摘要。
+
+v2 写入时会先将 SQLite 文档标记为 `pending`，随后写入 Chroma。Chroma 写入成功后状态变为 `ready`；如果失败，状态变为 `failed`，便于后续重建索引或排查不一致。
 
 ## 启动
 
@@ -100,7 +104,7 @@ curl -sS 'http://127.0.0.1:8000/v2/search?q=黑客攻击'
 curl -sS 'http://127.0.0.1:8000/v2/search?q=推荐质量下降'
 ```
 
-搜索响应包含文档 id、标题、摘要、归一化分数、命中的 chunk id、命中标题、标题路径和 chunk 数量。
+搜索响应包含文档 id、标题、摘要、归一化分数、命中的 chunk id、命中标题、标题路径和 chunk 数量。当前语义分数来自 Chroma cosine distance，不再根据固定 demo SOP id 额外加分。
 
 ## 与 v3 的集成
 

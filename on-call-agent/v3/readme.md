@@ -31,6 +31,19 @@ MOONSHOT_API_KEY=...
 - `OPENAI_MAX_TOKENS`
 - `OPENAI_TEMPERATURE`
 
+可靠性相关变量：
+
+```bash
+MOONSHOT_MAX_RETRIES=3
+MOONSHOT_RETRY_BASE_SECONDS=0.75
+MOONSHOT_RETRY_MAX_SECONDS=8
+V3_SESSION_TTL_SECONDS=300
+V3_MAX_SESSIONS=128
+V3_WS_URL=
+```
+
+Moonshot runtime 会对 `429/500/502/503/504` 和网络错误做指数退避重试。遇到 token limit 的 `400` 错误时，Agent 会压缩候选元数据、历史消息和工具输出后重试一次。
+
 ## 检索流程
 
 对每个用户 query，v3 会：
@@ -39,7 +52,7 @@ MOONSHOT_API_KEY=...
 2. 针对 Chroma 执行 v2 语义搜索
 3. 分别归一化两组分数
 4. 计算 `combined_score = keyword_weight * keyword_score + semantic_weight * semantic_score`
-5. 只保留 `combined_score >= 0.7` 的候选文档
+5. 只保留 `combined_score >= 0.75` 的候选文档
 
 v1 和 v2 检索通过 `ThreadPoolExecutor(max_workers=2)` 并行执行。v3 在进程内导入 v1/v2 search 模块，不调用 v1/v2 HTTP API。
 
@@ -64,7 +77,9 @@ readFile(fname: string) -> string
 
 前端会发送 `history`；服务端会清洗为 user/assistant 消息，并只保留最近 12 条。服务端还会在用户消息前发送压缩后的候选文档元数据。完整文档内容只会在模型调用 `readFile` 后加入上下文。
 
-工具调用轮数由 `MAX_TOOL_ROUNDS = 6` 限制。
+工具调用轮数由 `MAX_TOOL_ROUNDS = 4` 限制。
+
+WebSocket session 默认 300 秒过期，最多保留 128 个等待握手的 session。session 在成功握手后会被立即消费，不能复用。
 
 ## API
 
@@ -109,6 +124,8 @@ WebSocket 事件类型：
 - `error`：终止性的运行错误
 
 Web UI 会用这些事件实时展示工具调用进度。
+
+如果通过代理或远端机器访问，可以设置 `V3_WS_URL` 返回浏览器可访问的 WebSocket 地址。
 
 ## 启动
 

@@ -81,6 +81,26 @@
 
 ---
 
+› function getApiBase() {
+    function normalizeApiBase(value) {
+      const stripped = String(value || DEFAULT_API_BASE).replace(/\/+$/, "");
+      try {
+        const url = new URL(stripped);
+        if (url.protocol === "http:" && url.hostname === "localhost" && url.port === "8000") {
+          return DEFAULT_API_BASE;
+        }
+      } catch (_) {
+        return stripped;
+      }
+      return stripped;
+    } 这个ui的逻辑直接删除，会导致8000端口的信息一直出现在界面上
+
+---
+
+› 将每个on-call-agent中readme文件都写成中文
+
+---
+
 # Current Architecture Summary
 
 ## Services
