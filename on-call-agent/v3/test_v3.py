@@ -49,6 +49,19 @@ class TokenLimitThenSuccessRuntime:
         return {"role": "assistant", "content": "压缩上下文后回答成功。"}
 
 
+class NoCandidateRuntime:
+    def __init__(self) -> None:
+        self.calls = 0
+        self.seen_tools = "unset"
+        self.messages = []
+
+    def chat(self, messages, tools=None):
+        self.calls += 1
+        self.seen_tools = tools
+        self.messages = messages
+        return {"role": "assistant", "content": "未找到本地 SOP 文档，建议先确认告警范围。"}
+
+
 class V3Tests(unittest.TestCase):
     def test_read_file_restricts_to_single_filename_inside_data_dir(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -199,6 +212,23 @@ class V3Tests(unittest.TestCase):
         second = store.create({"message": "second"})
         self.assertIsNone(store.pop(first))
         self.assertEqual(store.pop(second), {"message": "second"})
+
+    def test_empty_retrieval_still_calls_runtime_without_tools(self) -> None:
+        runtime = NoCandidateRuntime()
+        result = run_chat(
+            message="没有文档命中的问题",
+            history=[],
+            weights=CandidateWeights(),
+            db_path=Path("unused.sqlite3"),
+            runtime=runtime,
+            keyword_search=lambda query, limit: [],
+            semantic_search=lambda query, limit: [],
+        )
+        self.assertEqual(runtime.calls, 1)
+        self.assertIsNone(runtime.seen_tools)
+        self.assertEqual(result["candidates"], [])
+        self.assertIn("未找到", result["answer"])
+        self.assertTrue(any("No document reached" in item.get("content", "") for item in runtime.messages))
 
 
 if __name__ == "__main__":

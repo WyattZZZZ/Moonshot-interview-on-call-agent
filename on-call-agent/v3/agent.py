@@ -91,17 +91,15 @@ def run_chat_stream(
     }
     steps: list[dict[str, Any]] = [retrieval_step]
     publish(retrieval_step)
-    if not candidates:
-        result = {
-            "answer": f"没有找到综合评分达到 {CANDIDATE_THRESHOLD} 的候选文档，无法安全调用 readFile 回答。",
-            "steps": steps,
-            "candidates": [],
-        }
-        publish({"type": "final", **result})
-        return result
 
     active_runtime = runtime or MoonshotChatRuntime()
     messages = _build_messages(message=message, history=history or [], candidates=candidates)
+    if not candidates:
+        publish({
+            "type": "status",
+            "phase": "no_candidates",
+            "message": "没有找到达到阈值的候选文档，正在直接请求 Kimi",
+        })
 
     for round_index in range(1, MAX_TOOL_ROUNDS + 1):
         publish({
@@ -111,7 +109,7 @@ def run_chat_stream(
             "message": "模型正在思考",
         })
         try:
-            assistant_message = active_runtime.chat(messages, tools=[READ_FILE_TOOL])
+            assistant_message = active_runtime.chat(messages, tools=[READ_FILE_TOOL] if candidates else None)
         except TokenLimitError:
             publish({
                 "type": "status",
@@ -120,7 +118,7 @@ def run_chat_stream(
                 "message": "上下文过长，正在压缩历史和工具内容后重试",
             })
             messages = _compact_messages_for_retry(messages)
-            assistant_message = active_runtime.chat(messages, tools=[READ_FILE_TOOL])
+            assistant_message = active_runtime.chat(messages, tools=[READ_FILE_TOOL] if candidates else None)
         messages.append(assistant_message)
         tool_calls = assistant_message.get("tool_calls") or []
         publish({
@@ -146,12 +144,19 @@ def run_chat_stream(
 
 def _build_messages(*, message: str, history: list[dict[str, Any]], candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
     compact_candidates = _public_candidates(candidates)
+    candidate_content = (
+        "Candidate documents:\n" + json.dumps(compact_candidates, ensure_ascii=False, indent=2)
+        if compact_candidates
+        else (
+            "Candidate documents: []\n"
+            f"No document reached the retrieval threshold {CANDIDATE_THRESHOLD}. "
+            "Answer with your general on-call reasoning, but explicitly tell the user that no local SOP document was found. "
+            "Do not call readFile because there are no candidate filenames."
+        )
+    )
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": SYSTEM_PROMPT},
-        {
-            "role": "system",
-            "content": "Candidate documents:\n" + json.dumps(compact_candidates, ensure_ascii=False, indent=2),
-        },
+        {"role": "system", "content": candidate_content},
     ]
     for item in _sanitize_history(history)[-MAX_HISTORY_MESSAGES:]:
         messages.append(item)
