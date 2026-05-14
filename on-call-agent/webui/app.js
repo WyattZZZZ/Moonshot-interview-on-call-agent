@@ -748,6 +748,14 @@
     if (Array.isArray(event.candidates) && event.candidates.length) {
       renderCandidates(container, event.candidates);
     }
+    if (Array.isArray(event.errors) && event.errors.length) {
+      appendTraceItem(
+        container,
+        "部分检索源不可用",
+        event.errors.map((item) => `${item.source || "unknown"}: ${item.message || ""}`).join("\n"),
+        "error"
+      );
+    }
   }
 
   async function openChatSession(payload) {

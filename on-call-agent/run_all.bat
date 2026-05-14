@@ -32,6 +32,10 @@ echo Syncing Python environment...
 uv sync
 if errorlevel 1 exit /b 1
 
+echo Initializing database and semantic index before serving...
+uv run python init_data.py --demo-dir "%DEMO_DIR%"
+if errorlevel 1 exit /b 1
+
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$ports=@(%API_GATEWAY_PORT%,%V1_PORT%,%V2_PORT%,%V3_PORT%,%V3_WS_PORT%,%WEBUI_PORT%); foreach($p in $ports){ $c=New-Object Net.Sockets.TcpClient; try { $iar=$c.BeginConnect('%HOST%',$p,$null,$null); if($iar.AsyncWaitHandle.WaitOne(200,$false) -and $c.Connected){ Write-Error ('Port '+$p+' is already in use on %HOST%'); exit 1 } } finally { $c.Close() } }"
 if errorlevel 1 exit /b 1
 

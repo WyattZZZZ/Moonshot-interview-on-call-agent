@@ -4,13 +4,13 @@ import json
 from pathlib import Path
 from typing import Any, Callable
 
-from retrieval import CANDIDATE_THRESHOLD, CandidateWeights, build_candidates
+from retrieval import CANDIDATE_THRESHOLD, CandidateWeights, build_candidates, get_last_retrieval_errors
 from runtime import ChatRuntime, MoonshotChatRuntime, READ_FILE_TOOL, RuntimeErrorResponse, TokenLimitError
 from tools import DEFAULT_DATA_DIR, ToolError, read_file
 
 
 MAX_HISTORY_MESSAGES = 12
-MAX_TOOL_ROUNDS = 4
+MAX_TOOL_ROUNDS = 6
 EventEmitter = Callable[[dict[str, Any]], None]
 
 
@@ -88,6 +88,7 @@ def run_chat_stream(
         "threshold": CANDIDATE_THRESHOLD,
         "candidate_count": len(candidates),
         "candidates": _public_candidates(candidates),
+        "errors": get_last_retrieval_errors(),
     }
     steps: list[dict[str, Any]] = [retrieval_step]
     publish(retrieval_step)
