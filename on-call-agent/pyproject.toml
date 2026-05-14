@@ -1,0 +1,11 @@
+[project]
+name = "on-call-agent"
+version = "0.1.0"
+description = "Versioned on-call SOP search and agent demo"
+requires-python = ">=3.11"
+dependencies = [
+    "jieba>=0.42.1",
+]
+
+[tool.uv]
+package = false
